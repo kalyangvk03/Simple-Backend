@@ -1,0 +1,40 @@
+name: Deploy API to VM
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.HOST }} >> ~/.ssh/known_hosts
+
+    - name: Deploy to VM
+      run: |
+        ssh ${{ secrets.USERNAME }}@${{ secrets.HOST }} << 'EOF'
+          # Remove old version if exists
+          sudo rm -rf ~/simple-api
+          # Create directory
+          mkdir -p ~/simple-api
+        EOF
+
+        scp -r ./app.py ./requirements.txt ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/simple-api/
+
+        ssh ${{ secrets.USERNAME }}@${{ secrets.HOST }} << 'EOF'
+          cd ~/simple-api
+          sudo apt-get update
+          sudo apt-get install -y python3-pip
+          pip3 install -r requirements.txt
+          sudo nohup python3 app.py > output.log 2>&1 &
+        EOF
