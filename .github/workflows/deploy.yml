@@ -13,28 +13,40 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Set up SSH
+    - name: Debug Secrets (for troubleshooting)
+      run: |
+        echo "HOST is '${{ secrets.HOST }}'"
+        echo "USERNAME is '${{ secrets.USERNAME }}'"
+      # Remove this step once confirmed secrets are correct
+
+    - name: Setup SSH
       run: |
         mkdir -p ~/.ssh
         echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
+
+        # Add your VM to known hosts to prevent host verification prompt
         ssh-keyscan -H ${{ secrets.HOST }} >> ~/.ssh/known_hosts
 
-    - name: Deploy to VM
+    - name: Deploy app files to VM
       run: |
-        ssh ${{ secrets.USERNAME }}@${{ secrets.HOST }} << 'EOF'
-          # Remove old version if exists
-          sudo rm -rf ~/simple-api
-          # Create directory
-          mkdir -p ~/simple-api
-        EOF
+        # Remove old app folder and recreate it
+        ssh ${{ secrets.USERNAME }}@${{ secrets.HOST }} "rm -rf ~/simple-api && mkdir -p ~/simple-api"
 
-        scp -r ./app.py ./requirements.txt ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/simple-api/
+        # Copy app.py and requirements.txt to VM
+        scp ./app.py ./requirements.txt ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/simple-api/
 
+    - name: Install dependencies and run app on VM
+      run: |
         ssh ${{ secrets.USERNAME }}@${{ secrets.HOST }} << 'EOF'
           cd ~/simple-api
           sudo apt-get update
           sudo apt-get install -y python3-pip
           pip3 install -r requirements.txt
-          sudo nohup python3 app.py > output.log 2>&1 &
+
+          # Kill any process using port 80 (optional, to avoid conflicts)
+          sudo fuser -k 80/tcp || true
+
+          # Run the Flask app in background with sudo on port 80
+          sudo nohup python3 app.py > app.log 2>&1 &
         EOF
