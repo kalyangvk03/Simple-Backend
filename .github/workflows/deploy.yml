@@ -13,40 +13,42 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Debug Secrets (for troubleshooting)
+    - name: Debug Secrets (optional for troubleshooting)
       run: |
-        echo "HOST is '${{ secrets.HOST }}'"
-        echo "USERNAME is '${{ secrets.USERNAME }}'"
-      # Remove this step once confirmed secrets are correct
+        echo "HOST: ${{ secrets.HOST }}"
+        echo "USERNAME: ${{ secrets.USERNAME }}"
 
-    - name: Setup SSH
+    - name: Set up SSH access
       run: |
         mkdir -p ~/.ssh
         echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
-
-        # Add your VM to known hosts to prevent host verification prompt
         ssh-keyscan -H ${{ secrets.HOST }} >> ~/.ssh/known_hosts
 
-    - name: Deploy app files to VM
+    - name: Prepare remote directory on VM
       run: |
-        # Remove old app folder and recreate it
         ssh ${{ secrets.USERNAME }}@${{ secrets.HOST }} "rm -rf ~/simple-api && mkdir -p ~/simple-api"
 
-        # Copy app.py and requirements.txt to VM
-        scp ./app.py ./requirements.txt ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/simple-api/
-
-    - name: Install dependencies and run app on VM
+    - name: Upload code to VM
       run: |
-        ssh ${{ secrets.USERNAME }}@${{ secrets.HOST }} << 'EOF'
-          cd ~/simple-api
-          sudo apt-get update
-          sudo apt-get install -y python3-pip
-          pip3 install -r requirements.txt
+        scp app.py requirements.txt ${{ secrets.USERNAME }}@${{ secrets.HOST }}:~/simple-api/
 
-          # Kill any process using port 80 (optional, to avoid conflicts)
-          sudo fuser -k 80/tcp || true
+    - name: Update system packages on VM
+      run: |
+        ssh ${{ secrets.USERNAME }}@${{ secrets.HOST }} "sudo apt-get update"
 
-          # Run the Flask app in background with sudo on port 80
-          sudo nohup python3 app.py > app.log 2>&1 &
-        EOF
+    - name: Install pip on VM
+      run: |
+        ssh ${{ secrets.USERNAME }}@${{ secrets.HOST }} "sudo apt-get install -y python3-pip"
+
+    - name: Install Python dependencies on VM
+      run: |
+        ssh ${{ secrets.USERNAME }}@${{ secrets.HOST }} "pip3 install -r ~/simple-api/requirements.txt"
+
+    - name: Stop any previous process on port 80
+      run: |
+        ssh ${{ secrets.USERNAME }}@${{ secrets.HOST }} "sudo fuser -k 80/tcp || true"
+
+    - name: Start Flask API on VM (port 80)
+      run: |
+        ssh ${{ secrets.USERNAME }}@${{ secrets.HOST }} "cd ~/simple-api && sudo nohup python3 app.py > app.log 2>&1 &"
